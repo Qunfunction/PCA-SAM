@@ -214,15 +214,3 @@ box prediction, student/final mask branches, teacher-target alignment, training
 losses, teacher-free inference, and COCO category policies. A strict checkpoint
 load and single-image prediction-equivalence check are recorded in
 [docs/VALIDATION.md](docs/VALIDATION.md).
-
-## License and dependencies
-
-The source is distributed under Apache-2.0; see [LICENSE](LICENSE) and
-[NOTICE](NOTICE). PCA-SAM builds on SAM and MMDetection. Upstream copyright
-headers and required attribution are retained. SAM and framework components
-are not claimed as independently authored PCA-SAM algorithms.
-
-- [Segment Anything](https://github.com/facebookresearch/segment-anything)
-- [MMDetection](https://github.com/open-mmlab/mmdetection)
-- [MMCV](https://github.com/open-mmlab/mmcv)
-- [MMEngine](https://github.com/open-mmlab/mmengine)
