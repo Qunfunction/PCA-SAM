@@ -41,8 +41,6 @@ acquisition to automated descriptions of cellular organization in biopsy tissue.
 The study introduces LP-HHG, constructed from public clinical HHG images, with
 nearly 1,300 images and over 40,000 annotated instances from 44 patients.
 Patient-disjoint evaluation assesses cell-level analysis on held-out patients.
-The two annotated groups comprise normal and tumor cells combined, and immune
-cells; instance masks delineate nuclei.
 
 ## Availability
 
