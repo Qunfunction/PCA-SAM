@@ -1,0 +1,49 @@
+{
+  "description": "SHA-256 of the local experiment source before packaging; no checkpoint key renaming is required.",
+  "files": [
+    {
+      "file": "pca_sam/models/sam/image_encoder.py",
+      "source_sha256": "c609c6c21758229b6432b26effc7d54ebf255edf09472ceef32206b2bd38b52f"
+    },
+    {
+      "file": "pca_sam/models/sam/mask_decoder.py",
+      "source_sha256": "dcc7dcabc895f4db40481ac6fdf2a51ebe16f7e49dd2a68041b65c3a89a2eee6"
+    },
+    {
+      "file": "pca_sam/models/sam/prompt_encoder.py",
+      "source_sha256": "76081c20d8ec2ad99a2138b0a1368a813e5dffb7e863684aa411f4c8173eab88"
+    },
+    {
+      "file": "pca_sam/models/sam/common.py",
+      "source_sha256": "59a53bfa5d0a4d446df7f2bb57d2e95808b130601592b934600fb663d256ce17"
+    },
+    {
+      "file": "pca_sam/models/sam/transformer.py",
+      "source_sha256": "bc65fe77111ea66dfb00db86fbc32f3cdd14713c027e45b69a2b4fb6d2005c21"
+    },
+    {
+      "file": "pca_sam/models/detector.py",
+      "source_sha256": "fd65f4dbdf2caa89077b70a40fccc6b98fb7c99188731cebef5f0136127dbf75"
+    },
+    {
+      "file": "pca_sam/models/roi_heads/base.py",
+      "source_sha256": "4da851976d32380227ec85a42eaa744fb390fdd27847cf84f09707edc5b81bb0"
+    },
+    {
+      "file": "pca_sam/models/roi_heads/cbrd.py",
+      "source_sha256": "ee0f709570dbec79c808e3a83eeff2b0036b3235079a48cbb97ec8a360bd4452"
+    },
+    {
+      "file": "pca_sam/models/roi_heads/context_bbox_head.py",
+      "source_sha256": "6b5b59838acbb6b28ab54a2a09cfe2c50ce13aa4faafd20bb5d024b955e2be77"
+    },
+    {
+      "file": "pca_sam/models/roi_heads/boundary_mask_head.py",
+      "source_sha256": "6252a33a629874646f03aadd0eff71065ee79a2360fe5642e2ec3f8c16c2eefd"
+    },
+    {
+      "file": "pca_sam/models/roi_heads/auxiliary_mask_head.py",
+      "source_sha256": "0abc62174fd02c9e1fb6507c395fe169ddfcfe9e9c414489cdb750e0faf44f33"
+    }
+  ]
+}

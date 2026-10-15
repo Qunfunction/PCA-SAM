@@ -1,0 +1,7 @@
+# Install a matching PyTorch/torchvision pair and full MMCV separately; see README.
+mmdet==3.2.0
+mmcv>=2.0.0,<2.2.0
+mmengine>=0.10.0,<1.0.0
+numpy<2
+pycocotools>=2.0.6
+opencv-python

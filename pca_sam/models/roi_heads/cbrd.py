@@ -1,0 +1,738 @@
+# Copyright (c) OpenMMLab. All rights reserved.
+from typing import List, Sequence, Tuple, Union
+import torch.nn.functional as F
+import torch
+import torch.nn as nn
+from mmengine.model import ModuleList
+from mmengine.structures import InstanceData
+from torch import Tensor
+from torchvision.ops import roi_align
+from mmdet.models.task_modules.samplers import SamplingResult
+from mmdet.models.test_time_augs import merge_aug_masks
+from mmdet.registry import MODELS, TASK_UTILS
+from mmdet.structures import SampleList
+from mmdet.structures.bbox import bbox2roi, get_box_tensor
+from mmdet.utils import (ConfigType, InstanceList, MultiConfig, OptConfigType,
+                         OptMultiConfig)
+from mmdet.models.utils.misc import empty_instances, unpack_gt_instances
+from .base import BaseCBRDHead
+
+@MODELS.register_module()
+class CBRDHead(BaseCBRDHead):
+    """Cascade roi head including one bbox head and one mask head.
+
+    https://arxiv.org/abs/1712.00726
+    """
+
+    def __init__(self,
+                 num_stages: int,
+                 stage_loss_weights: Union[List[float], Tuple[float]],
+                 bbox_roi_extractor: OptMultiConfig = None,
+                 bbox_head: OptMultiConfig = None,
+                 mask_roi_extractor: OptMultiConfig = None,
+                 mask_head: OptMultiConfig = None,
+                 sam_mask_head: OptMultiConfig = None,
+                 shared_head: OptConfigType = None,
+                 mask_decoder: OptConfigType = None,
+                 prompt_encoder: OptConfigType = None,
+                 with_context: bool = False,
+                 train_cfg: OptConfigType = None,
+                 test_cfg: OptConfigType = None,
+                 init_cfg: OptMultiConfig = None) -> None:
+        assert bbox_roi_extractor is not None
+        assert bbox_head is not None
+        assert shared_head is None, \
+            'Shared head is not supported in Cascade RCNN anymore'
+        self.num_stages = num_stages
+        self.stage_loss_weights = stage_loss_weights
+        super().__init__(
+            bbox_roi_extractor=bbox_roi_extractor,
+            bbox_head=bbox_head,
+            mask_roi_extractor=mask_roi_extractor,
+            mask_head=mask_head,
+            shared_head=shared_head,
+            train_cfg=train_cfg,
+            test_cfg=test_cfg,
+            init_cfg=init_cfg)
+        if mask_decoder is not None:
+            self.mask_decoder = MODELS.build(mask_decoder)
+        if prompt_encoder is not None:
+            self.prompt_encoder = MODELS.build(prompt_encoder)
+        self.with_context = with_context
+        if sam_mask_head is not None:
+            self.init_sam_mask_head(sam_mask_head)
+
+    def init_bbox_head(self, bbox_roi_extractor: MultiConfig,
+                       bbox_head: MultiConfig) -> None:
+        """Initialize box head and box roi extractor.
+
+        Args:
+            bbox_roi_extractor (:obj:`ConfigDict`, dict or list):
+                Config of box roi extractor.
+            bbox_head (:obj:`ConfigDict`, dict or list): Config
+                of box in box head.
+        """
+        self.bbox_roi_extractor = ModuleList()
+        self.bbox_head = ModuleList()
+        if not isinstance(bbox_roi_extractor, list):
+            bbox_roi_extractor = [
+                bbox_roi_extractor for _ in range(self.num_stages)
+            ]
+        if not isinstance(bbox_head, list):
+            bbox_head = [bbox_head for _ in range(self.num_stages)]
+        assert len(bbox_roi_extractor) == len(bbox_head) == self.num_stages
+        for roi_extractor, head in zip(bbox_roi_extractor, bbox_head):
+            self.bbox_roi_extractor.append(MODELS.build(roi_extractor))
+            self.bbox_head.append(MODELS.build(head))
+
+    def init_mask_head(self, mask_roi_extractor: MultiConfig,
+                       mask_head: MultiConfig) -> None:
+        """Initialize mask head and mask roi extractor.
+
+        Args:
+            mask_head (dict): Config of mask in mask head.
+            mask_roi_extractor (:obj:`ConfigDict`, dict or list):
+                Config of mask roi extractor.
+        """
+        self.mask_head = nn.ModuleList()
+        if not isinstance(mask_head, list):
+            mask_head = [mask_head for _ in range(self.num_stages)]
+        assert len(mask_head) == self.num_stages
+        for head in mask_head:
+            self.mask_head.append(MODELS.build(head))
+        if mask_roi_extractor is not None:
+            self.share_roi_extractor = False
+            self.mask_roi_extractor = ModuleList()
+            if not isinstance(mask_roi_extractor, list):
+                mask_roi_extractor = [
+                    mask_roi_extractor for _ in range(self.num_stages)
+                ]
+            assert len(mask_roi_extractor) == self.num_stages
+            for roi_extractor in mask_roi_extractor:
+                self.mask_roi_extractor.append(MODELS.build(roi_extractor))
+        else:
+            self.share_roi_extractor = True
+            self.mask_roi_extractor = self.bbox_roi_extractor
+
+    def init_sam_mask_head(self, sam_mask_head: MultiConfig) -> None:
+        """Initialize mask head. """
+        self.sam_mask_head = nn.ModuleList()
+        if not isinstance(sam_mask_head, list):
+            sam_mask_head = [sam_mask_head for _ in range(self.num_stages)]
+        assert len(sam_mask_head) == self.num_stages
+        for head in sam_mask_head:
+            self.sam_mask_head.append(MODELS.build(head))
+
+    def init_assigner_sampler(self) -> None:
+        """Initialize assigner and sampler for each stage."""
+        self.bbox_assigner = []
+        self.bbox_sampler = []
+        if self.train_cfg is not None:
+            for idx, rcnn_train_cfg in enumerate(self.train_cfg):
+                self.bbox_assigner.append(
+                    TASK_UTILS.build(rcnn_train_cfg.assigner))
+                self.current_stage = idx
+                self.bbox_sampler.append(
+                    TASK_UTILS.build(
+                        rcnn_train_cfg.sampler,
+                        default_args=dict(context=self)))
+
+    def _bbox_forward(self, stage: int, x: Tuple[Tensor],
+                      rois: Tensor) -> dict:
+        """Box head forward function used in both training and testing.
+
+        Args:
+            stage (int): The current stage in Cascade RoI Head.
+            x (tuple[Tensor]): List of multi-level img features.
+            rois (Tensor): RoIs with the shape (n, 5) where the first
+                column indicates batch id of each RoI.
+
+        Returns:
+             dict[str, Tensor]: Usually returns a dictionary with keys:
+
+                - `cls_score` (Tensor): Classification scores.
+                - `bbox_pred` (Tensor): Box energies / deltas.
+                - `bbox_feats` (Tensor): Extract bbox RoI features.
+        """
+        bbox_roi_extractor = self.bbox_roi_extractor[stage]
+        bbox_head = self.bbox_head[stage]
+        bbox_feats = bbox_roi_extractor(x[:bbox_roi_extractor.num_inputs],
+                                        rois)
+
+        if not self.with_context:
+            cls_score, bbox_pred = bbox_head(bbox_feats)
+            bbox_results = dict(
+                cls_score=cls_score, bbox_pred=bbox_pred, bbox_feats=bbox_feats)
+        else:
+            context_feats = bbox_roi_extractor(x[:bbox_roi_extractor.num_inputs],
+                                        rois, roi_scale_factor=2)
+            cls_score, bbox_pred, cls_context_score, bbox_context_pred \
+                = bbox_head(bbox_feats, context_feats)
+            bbox_results = dict(
+                cls_score=cls_score, bbox_pred=bbox_pred, bbox_feats=bbox_feats,
+                cls_context_score=cls_context_score, bbox_context_pred=bbox_context_pred,
+                context_feats=context_feats)
+        return bbox_results
+
+    def bbox_loss(self, stage: int, x: Tuple[Tensor],
+                  sampling_results: List[SamplingResult],
+                  image_embeddings: Tensor,) -> dict:
+        """Run forward function and calculate loss for box head in training.
+
+        Args:
+            stage (int): The current stage in Cascade RoI Head.
+            x (tuple[Tensor]): List of multi-level img features.
+            sampling_results (list["obj:`SamplingResult`]): Sampling results.
+
+        Returns:
+            dict: Usually returns a dictionary with keys:
+
+                - `cls_score` (Tensor): Classification scores.
+                - `bbox_pred` (Tensor): Box energies / deltas.
+                - `bbox_feats` (Tensor): Extract bbox RoI features.
+                - `loss_bbox` (dict): A dictionary of bbox loss components.
+                - `rois` (Tensor): RoIs with the shape (n, 5) where the first
+                  column indicates batch id of each RoI.
+                - `bbox_targets` (tuple):  Ground truth for proposals in a
+                  single image. Containing the following list of Tensors:
+                  (labels, label_weights, bbox_targets, bbox_weights)
+        """
+        bbox_head = self.bbox_head[stage]
+        rois = bbox2roi([res.priors for res in sampling_results])
+        bbox_results = self._bbox_forward(stage, x, rois)
+        bbox_results.update(rois=rois)
+        if not self.with_context:
+            bbox_loss_and_target = bbox_head.loss_and_target(
+                cls_score=bbox_results['cls_score'],
+                bbox_pred=bbox_results['bbox_pred'],
+                rois=rois,
+                sampling_results=sampling_results,
+                rcnn_train_cfg=self.train_cfg[stage])
+        else:
+            bbox_loss_and_target = bbox_head.loss_and_target(
+                cls_score=bbox_results['cls_score'],
+                bbox_pred=bbox_results['bbox_pred'],
+                cls_context_score=bbox_results['cls_context_score'],
+                bbox_context_pred=bbox_results['bbox_context_pred'],
+                rois=rois,
+                sampling_results=sampling_results,
+                rcnn_train_cfg=self.train_cfg[stage])
+        bbox_results.update(bbox_loss_and_target)
+
+        return bbox_results
+
+    def gen_mask(self, rois, image_embeddings, multimask_output=False):
+        box = rois[:, 1:]
+        id = rois[:, :1]
+        proposals = []
+        for i in range(image_embeddings.shape[0]):
+            ind = torch.where(id == i)[0]
+            proposals.append(box[ind])
+        mask_logit = []
+        for i, m in enumerate(proposals):
+            input_point_1 = (m[:, 0] + m[:, 2]) * 0.5
+            input_point_2 = (m[:, 1] + m[:, 3]) * 0.5
+            input_point = torch.cat([input_point_1.unsqueeze(1), input_point_2.unsqueeze(1)], dim=1)
+            input_label = torch.ones(len(m), dtype=torch.int32)
+            points = (input_point[:, None, :], input_label[:, None])
+            sparse_embeddings, dense_embeddings = self.prompt_encoder(
+                points=points,
+                boxes=m,
+                masks=None,
+            )
+            low_res_masks, _ = self.mask_decoder(
+                image_embeddings=image_embeddings[i].unsqueeze(0),
+                image_pe=self.prompt_encoder.get_dense_pe(),
+                sparse_prompt_embeddings=sparse_embeddings,
+                dense_prompt_embeddings=dense_embeddings,
+                multimask_output=multimask_output,
+            )
+            low_res_masks = F.interpolate(
+                low_res_masks,
+                (1024, 1024),
+                mode="bilinear",
+                align_corners=False,
+            )
+            mask_logit.append(low_res_masks)
+        discretization_size = 28
+        mask_matched_idxs = [torch.arange(0, len(m), device=rois.device) for m in proposals]
+        mask_pooling = [project_masks_on_boxes(m[:, 0, :, :], p, i, discretization_size) for m, p, i in
+                        zip(mask_logit, proposals, mask_matched_idxs)]
+        mask_pooling = torch.cat([m.unsqueeze(1) for m in mask_pooling], dim=0)
+        return mask_pooling
+
+    def _mask_forward(self, stage: int, x: Tuple[Tensor],
+                      rois: Tensor, image_embeddings: Tensor) -> dict:
+        """Mask head forward function used in both training and testing.
+
+        Args:
+            stage (int): The current stage in Cascade RoI Head.
+            x (tuple[Tensor]): Tuple of multi-level img features.
+            rois (Tensor): RoIs with the shape (n, 5) where the first
+                column indicates batch id of each RoI.
+
+        Returns:
+            dict: Usually returns a dictionary with keys:
+
+                - `mask_preds` (Tensor): Mask prediction.
+        """
+        mask_roi_extractor = self.mask_roi_extractor[stage]
+        mask_head = self.mask_head[stage]
+        sam_mask_head = self.sam_mask_head[stage]
+        mask_feats = mask_roi_extractor(x[:mask_roi_extractor.num_inputs],
+                                        rois)
+        sam_preds, mid_feats = sam_mask_head(mask_feats)
+        mask_preds = mask_head(mask_feats, mid_feats)
+        mask_results = dict(mask_preds=mask_preds, sam_preds=sam_preds)
+        return mask_results
+
+    def mask_loss(self, stage: int, x: Tuple[Tensor],
+                  sampling_results: List[SamplingResult],
+                  batch_gt_instances: InstanceList,
+                  image_embeddings: Tensor) -> dict:
+        """Run forward function and calculate loss for mask head in training.
+
+        Args:
+            stage (int): The current stage in Cascade RoI Head.
+            x (tuple[Tensor]): Tuple of multi-level img features.
+            sampling_results (list["obj:`SamplingResult`]): Sampling results.
+            batch_gt_instances (list[:obj:`InstanceData`]): Batch of
+                gt_instance. It usually includes ``bboxes``, ``labels``, and
+                ``masks`` attributes.
+
+        Returns:
+            dict: Usually returns a dictionary with keys:
+
+                - `mask_preds` (Tensor): Mask prediction.
+                - `loss_mask` (dict): A dictionary of mask loss components.
+        """
+        pos_rois = bbox2roi([res.pos_priors for res in sampling_results])
+        mask_results = self._mask_forward(stage, x, pos_rois, image_embeddings=image_embeddings)
+        mask_target = self.gen_mask(pos_rois, image_embeddings)
+        mask_target = mask_target > 0
+        mask_target = torch.where(mask_target == True, 1., 0.)
+
+        mask_head = self.mask_head[stage]
+        sam_mask_head = self.sam_mask_head[stage]
+
+        sam_loss_and_target = sam_mask_head.loss_and_target(
+            mask_preds=mask_results['sam_preds'],
+            sampling_results=sampling_results,
+            batch_gt_instances=mask_target.squeeze(1),
+            rcnn_train_cfg=self.train_cfg[stage])
+        mask_results.update(sam_loss_and_target)
+
+        mask_loss_and_target = mask_head.loss_and_target(
+            mask_preds=mask_results['mask_preds'],
+            sampling_results=sampling_results,
+            batch_gt_instances=batch_gt_instances,
+            rcnn_train_cfg=self.train_cfg[stage])
+        mask_results.update(mask_loss_and_target)
+        mask_results['loss_mask'].update(sam_loss_and_target['loss_mask'])
+
+        return mask_results
+
+    def loss(self, x: Tuple[Tensor], rpn_results_list: InstanceList,
+             batch_data_samples: SampleList, image_embeddings: Tensor) -> dict:
+        """Perform forward propagation and loss calculation of the detection
+        roi on the features of the upstream network.
+
+        Args:
+            x (tuple[Tensor]): List of multi-level img features.
+            rpn_results_list (list[:obj:`InstanceData`]): List of region
+                proposals.
+            batch_data_samples (list[:obj:`DetDataSample`]): The batch
+                data samples. It usually includes information such
+                as `gt_instance` or `gt_panoptic_seg` or `gt_sem_seg`.
+
+        Returns:
+            dict[str, Tensor]: A dictionary of loss components
+        """
+        # TODO: May add a new function in baseroihead
+
+        assert len(rpn_results_list) == len(batch_data_samples)
+        outputs = unpack_gt_instances(batch_data_samples)
+        batch_gt_instances, batch_gt_instances_ignore, batch_img_metas \
+            = outputs
+
+        num_imgs = len(batch_data_samples)
+        losses = dict()
+        results_list = rpn_results_list
+        for stage in range(self.num_stages):
+            self.current_stage = stage
+
+            stage_loss_weight = self.stage_loss_weights[stage]
+
+            # assign gts and sample proposals
+            sampling_results = []
+            if self.with_bbox or self.with_mask:
+                bbox_assigner = self.bbox_assigner[stage]
+                bbox_sampler = self.bbox_sampler[stage]
+
+                for i in range(num_imgs):
+                    results = results_list[i]
+                    # rename rpn_results.bboxes to rpn_results.priors
+                    results.priors = results.pop('bboxes')
+
+                    assign_result = bbox_assigner.assign(
+                        results, batch_gt_instances[i],
+                        batch_gt_instances_ignore[i])
+
+                    sampling_result = bbox_sampler.sample(
+                        assign_result,
+                        results,
+                        batch_gt_instances[i],
+                        feats=[lvl_feat[i][None] for lvl_feat in x])
+                    sampling_results.append(sampling_result)
+
+            # bbox head forward and loss
+            bbox_results = self.bbox_loss(stage, x, sampling_results, image_embeddings=image_embeddings)
+
+            for name, value in bbox_results['loss_bbox'].items():
+                losses[f's{stage}.{name}'] = (
+                    value * stage_loss_weight if 'loss' in name else value)
+
+            # mask head forward and loss
+            if self.with_mask:
+                mask_results = self.mask_loss(stage, x, sampling_results,
+                                              batch_gt_instances, image_embeddings=image_embeddings)
+                for name, value in mask_results['loss_mask'].items():
+                    losses[f's{stage}.{name}'] = (
+                        value * stage_loss_weight if 'loss' in name else value)
+
+            # refine bboxes
+            if stage < self.num_stages - 1:
+                bbox_head = self.bbox_head[stage]
+                with torch.no_grad():
+                    results_list = bbox_head.refine_bboxes(
+                        sampling_results, bbox_results, batch_img_metas)
+                    # Empty proposal
+                    if results_list is None:
+                        break
+        return losses
+
+    def predict_bbox(self,
+                     x: Tuple[Tensor],
+                     batch_img_metas: List[dict],
+                     rpn_results_list: InstanceList,
+                     rcnn_test_cfg: ConfigType,
+                     image_embeddings: Tensor,
+                     rescale: bool = False,
+                     **kwargs) -> InstanceList:
+        """Perform forward propagation of the bbox head and predict detection
+        results on the features of the upstream network.
+
+        Args:
+            x (tuple[Tensor]): Feature maps of all scale level.
+            batch_img_metas (list[dict]): List of image information.
+            rpn_results_list (list[:obj:`InstanceData`]): List of region
+                proposals.
+            rcnn_test_cfg (obj:`ConfigDict`): `test_cfg` of R-CNN.
+            rescale (bool): If True, return boxes in original image space.
+                Defaults to False.
+
+        Returns:
+            list[:obj:`InstanceData`]: Detection results of each image
+            after the post process.
+            Each item usually contains following keys.
+
+                - scores (Tensor): Classification scores, has a shape
+                  (num_instance, )
+                - labels (Tensor): Labels of bboxes, has a shape
+                  (num_instances, ).
+                - bboxes (Tensor): Has a shape (num_instances, 4),
+                  the last dimension 4 arrange as (x1, y1, x2, y2).
+        """
+        proposals = [res.bboxes for res in rpn_results_list]
+        num_proposals_per_img = tuple(len(p) for p in proposals)
+        rois = bbox2roi(proposals)
+
+        if rois.shape[0] == 0:
+            return empty_instances(
+                batch_img_metas,
+                rois.device,
+                task_type='bbox',
+                box_type=self.bbox_head[-1].predict_box_type,
+                num_classes=self.bbox_head[-1].num_classes,
+                score_per_cls=rcnn_test_cfg is None)
+
+        rois, cls_scores, bbox_preds = self._refine_roi(
+            x=x,
+            rois=rois,
+            batch_img_metas=batch_img_metas,
+            num_proposals_per_img=num_proposals_per_img,
+            image_embeddings=image_embeddings,
+            **kwargs)
+
+        results_list = self.bbox_head[-1].predict_by_feat(
+            rois=rois,
+            cls_scores=cls_scores,
+            bbox_preds=bbox_preds,
+            batch_img_metas=batch_img_metas,
+            rescale=rescale,
+            rcnn_test_cfg=rcnn_test_cfg)
+        return results_list
+
+    def predict_mask(self,
+                     x: Tuple[Tensor],
+                     batch_img_metas: List[dict],
+                     results_list: List[InstanceData],
+                     image_embeddings: Tensor,
+                     rescale: bool = False) -> List[InstanceData]:
+        """Perform forward propagation of the mask head and predict detection
+        results on the features of the upstream network.
+
+        Args:
+            x (tuple[Tensor]): Feature maps of all scale level.
+            batch_img_metas (list[dict]): List of image information.
+            results_list (list[:obj:`InstanceData`]): Detection results of
+                each image.
+            rescale (bool): If True, return boxes in original image space.
+                Defaults to False.
+
+        Returns:
+            list[:obj:`InstanceData`]: Detection results of each image
+            after the post process.
+            Each item usually contains following keys.
+
+                - scores (Tensor): Classification scores, has a shape
+                  (num_instance, )
+                - labels (Tensor): Labels of bboxes, has a shape
+                  (num_instances, ).
+                - bboxes (Tensor): Has a shape (num_instances, 4),
+                  the last dimension 4 arrange as (x1, y1, x2, y2).
+                - masks (Tensor): Has a shape (num_instances, H, W).
+        """
+        bboxes = [res.bboxes for res in results_list]
+        mask_rois = bbox2roi(bboxes)
+        if mask_rois.shape[0] == 0:
+            results_list = empty_instances(
+                batch_img_metas,
+                mask_rois.device,
+                task_type='mask',
+                instance_results=results_list,
+                mask_thr_binary=self.test_cfg.mask_thr_binary)
+            return results_list
+
+        num_mask_rois_per_img = [len(res) for res in results_list]
+        aug_masks = []
+        for stage in range(self.num_stages):
+            mask_results = self._mask_forward(stage, x, mask_rois, image_embeddings=image_embeddings)
+            mask_preds = mask_results['mask_preds']
+            # split batch mask prediction back to each image
+            mask_preds = mask_preds.split(num_mask_rois_per_img, 0)
+            aug_masks.append([m.sigmoid().detach() for m in mask_preds])
+
+        merged_masks = []
+        for i in range(len(batch_img_metas)):
+            aug_mask = [mask[i] for mask in aug_masks]
+            merged_mask = merge_aug_masks(aug_mask, batch_img_metas[i])
+            merged_masks.append(merged_mask)
+
+        results_list = self.mask_head[-1].predict_by_feat(
+            mask_preds=merged_masks,
+            results_list=results_list,
+            batch_img_metas=batch_img_metas,
+            rcnn_test_cfg=self.test_cfg,
+            rescale=rescale,
+            activate_map=True)
+        return results_list
+
+    def _refine_roi(self, x: Tuple[Tensor], rois: Tensor,
+                    batch_img_metas: List[dict],
+                    num_proposals_per_img: Sequence[int],
+                    image_embeddings: Tensor, **kwargs) -> tuple:
+        """Multi-stage refinement of RoI.
+
+        Args:
+            x (tuple[Tensor]): List of multi-level img features.
+            rois (Tensor): shape (n, 5), [batch_ind, x1, y1, x2, y2]
+            batch_img_metas (list[dict]): List of image information.
+            num_proposals_per_img (sequence[int]): number of proposals
+                in each image.
+
+        Returns:
+            tuple:
+
+               - rois (Tensor): Refined RoI.
+               - cls_scores (list[Tensor]): Average predicted
+                   cls score per image.
+               - bbox_preds (list[Tensor]): Bbox branch predictions
+                   for the last stage of per image.
+        """
+        # "ms" in variable names means multi-stage
+        ms_scores = []
+        for stage in range(self.num_stages):
+            bbox_results = self._bbox_forward(
+                stage=stage, x=x, rois=rois, **kwargs)
+
+            # split batch bbox prediction back to each image
+            cls_scores = bbox_results['cls_score']
+            bbox_preds = bbox_results['bbox_pred']
+
+            rois = rois.split(num_proposals_per_img, 0)
+            cls_scores = cls_scores.split(num_proposals_per_img, 0)
+            ms_scores.append(cls_scores)
+
+            # some detector with_reg is False, bbox_preds will be None
+            if bbox_preds is not None:
+                # TODO move this to a sabl_roi_head
+                # the bbox prediction of some detectors like SABL is not Tensor
+                if isinstance(bbox_preds, torch.Tensor):
+                    bbox_preds = bbox_preds.split(num_proposals_per_img, 0)
+                else:
+                    bbox_preds = self.bbox_head[stage].bbox_pred_split(
+                        bbox_preds, num_proposals_per_img)
+            else:
+                bbox_preds = (None, ) * len(batch_img_metas)
+
+            if stage < self.num_stages - 1:
+                bbox_head = self.bbox_head[stage]
+                if bbox_head.custom_activation:
+                    cls_scores = [
+                        bbox_head.loss_cls.get_activation(s)
+                        for s in cls_scores
+                    ]
+                refine_rois_list = []
+                for i in range(len(batch_img_metas)):
+                    if rois[i].shape[0] > 0:
+                        bbox_label = cls_scores[i][:, :-1].argmax(dim=1)
+                        # Refactor `bbox_head.regress_by_class` to only accept
+                        # box tensor without img_idx concatenated.
+                        refined_bboxes = bbox_head.regress_by_class(
+                            rois[i][:, 1:], bbox_label, bbox_preds[i],
+                            batch_img_metas[i])
+                        refined_bboxes = get_box_tensor(refined_bboxes)
+                        refined_rois = torch.cat(
+                            [rois[i][:, [0]], refined_bboxes], dim=1)
+                        refine_rois_list.append(refined_rois)
+                rois = torch.cat(refine_rois_list)
+
+        # average scores of each image by stages
+        cls_scores = [
+            sum([score[i] for score in ms_scores]) / float(len(ms_scores))
+            for i in range(len(batch_img_metas))
+        ]
+        return rois, cls_scores, bbox_preds
+
+    def forward(self, x: Tuple[Tensor], rpn_results_list: InstanceList,
+                batch_data_samples: SampleList, image_embeddings: Tensor) -> tuple:
+        """Network forward process. Usually includes backbone, neck and head
+        forward without any post-processing.
+
+        Args:
+            x (List[Tensor]): Multi-level features that may have different
+                resolutions.
+            rpn_results_list (list[:obj:`InstanceData`]): List of region
+                proposals.
+            batch_data_samples (list[:obj:`DetDataSample`]): Each item contains
+                the meta information of each image and corresponding
+                annotations.
+
+        Returns
+            tuple: A tuple of features from ``bbox_head`` and ``mask_head``
+            forward.
+        """
+
+        results = ()
+        batch_img_metas = [
+            data_samples.metainfo for data_samples in batch_data_samples
+        ]
+        proposals = [rpn_results.bboxes for rpn_results in rpn_results_list]
+        num_proposals_per_img = tuple(len(p) for p in proposals)
+        rois = bbox2roi(proposals)
+        # bbox head
+        if self.with_bbox:
+            rois, cls_scores, bbox_preds = self._refine_roi(
+                x, rois, batch_img_metas, num_proposals_per_img, image_embeddings=image_embeddings)
+            results = results + (cls_scores, bbox_preds)
+        # mask head
+        if self.with_mask:
+            aug_masks = []
+            rois = torch.cat(rois)
+            for stage in range(self.num_stages):
+                mask_results = self._mask_forward(stage, x, rois, image_embeddings=image_embeddings)
+                mask_preds = mask_results['mask_preds']
+                mask_preds = mask_preds.split(num_proposals_per_img, 0)
+                aug_masks.append([m.sigmoid().detach() for m in mask_preds])
+
+            merged_masks = []
+            for i in range(len(batch_img_metas)):
+                aug_mask = [mask[i] for mask in aug_masks]
+                merged_mask = merge_aug_masks(aug_mask, batch_img_metas[i])
+                merged_masks.append(merged_mask)
+            results = results + (merged_masks, )
+        return results
+
+    def predict(self,
+                x: Tuple[Tensor],
+                rpn_results_list: InstanceList,
+                batch_data_samples: SampleList,
+                image_embeddings: Tensor,
+                rescale: bool = False) -> InstanceList:
+        """Perform forward propagation of the roi head and predict detection
+        results on the features of the upstream network.
+
+        Args:
+            x (tuple[Tensor]): Features from upstream network. Each
+                has shape (N, C, H, W).
+            rpn_results_list (list[:obj:`InstanceData`]): list of region
+                proposals.
+            batch_data_samples (List[:obj:`DetDataSample`]): The Data
+                Samples. It usually includes information such as
+                `gt_instance`, `gt_panoptic_seg` and `gt_sem_seg`.
+            rescale (bool): Whether to rescale the results to
+                the original image. Defaults to True.
+
+        Returns:
+            list[obj:`InstanceData`]: Detection results of each image.
+            Each item usually contains following keys.
+
+                - scores (Tensor): Classification scores, has a shape
+                  (num_instance, )
+                - labels (Tensor): Labels of bboxes, has a shape
+                  (num_instances, ).
+                - bboxes (Tensor): Has a shape (num_instances, 4),
+                  the last dimension 4 arrange as (x1, y1, x2, y2).
+                - masks (Tensor): Has a shape (num_instances, H, W).
+        """
+
+        assert self.with_bbox, 'Bbox head must be implemented.'
+        batch_img_metas = [
+            data_samples.metainfo for data_samples in batch_data_samples
+        ]
+
+        # TODO: nms_op in mmcv need be enhanced, the bbox result may get
+        #  difference when not rescale in bbox_head
+
+        # If it has the mask branch, the bbox branch does not need
+        # to be scaled to the original image scale, because the mask
+        # branch will scale both bbox and mask at the same time.
+        bbox_rescale = rescale if not self.with_mask else False
+        results_list = self.predict_bbox(
+            x,
+            batch_img_metas,
+            rpn_results_list,
+            rcnn_test_cfg=self.test_cfg,
+            image_embeddings=image_embeddings,
+            rescale=bbox_rescale)
+
+        if self.with_mask:
+            results_list = self.predict_mask(
+                x, batch_img_metas, results_list, image_embeddings, rescale=rescale)
+
+        return results_list
+
+def project_masks_on_boxes(gt_masks, boxes, matched_idxs, M):
+    # type: (Tensor, Tensor, Tensor, int) -> Tensor
+    """
+    Given segmentation masks and the bounding boxes corresponding
+    to the location of the masks in the image, this function
+    crops and resizes the masks in the position defined by the
+    boxes. This prepares the masks for them to be fed to the
+    loss computation as the targets.
+    """
+    matched_idxs = matched_idxs.to(boxes)
+    rois = torch.cat([matched_idxs[:, None], boxes], dim=1)
+    gt_masks = gt_masks[:, None].to(rois)
+    return roi_align(gt_masks, rois, (M, M), 1.0)[:, 0]

@@ -1,0 +1,30 @@
+PCA-SAM source distribution
+
+This package reorganizes the local PCA-SAM experiment implementation into an
+MMDetection extension. Model class names and project documentation were updated;
+checkpoint parameter paths were retained. CSPC's projection helper was reduced
+to the normalization and convolution used by the released configuration.
+Checkpoint component loading was made device-independent, and frozen components
+are frozen at construction as well as when pretrained weights are supplied.
+
+Files under pca_sam/models/sam are adapted from Segment Anything:
+Copyright (c) Meta Platforms, Inc. and affiliates. All rights reserved.
+https://github.com/facebookresearch/segment-anything
+Licensed under Apache License 2.0.
+
+Detector, RoI-head, mask-head and framework integration code includes adaptations
+of MMDetection implementations:
+Copyright (c) OpenMMLab. All rights reserved.
+https://github.com/open-mmlab/mmdetection
+Licensed under Apache License 2.0.
+
+SAM-derived code retains its source references to ViTDet, Detectron2, ConvNeXt,
+MViT and MaskFormer. Those references identify upstream implementation provenance.
+
+The local source header for the contextual neck credited its author as
+杜安然 and was dated 2026-03-18. That source attribution is retained here while
+the public project and module names follow the PCA-SAM manuscript terminology.
+
+Modified source files and their pre-packaging SHA-256 hashes are recorded in
+docs/source_manifest.json. The original dataset, patient metadata and checkpoints
+are not included in this source-only distribution.
