@@ -363,7 +363,7 @@ def add_decomposed_rel_pos(
     k_size: Tuple[int, int],
 ) -> torch.Tensor:
     """
-    Calculate decomposed Relative Positional Embeddings from :paper:`mvitv2`.
+    Calculate decomposed relative positional embeddings.
     https://github.com/facebookresearch/mvit/blob/19786631e330df9f3622e5402b4a419a263a2c80/mvit/models/attention.py   # noqa B950
     Args:
         attn (Tensor): attention map.

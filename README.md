@@ -110,8 +110,8 @@ separate initialization files.
 
 ## LP-HHG data
 
-LP-HHG is derived from the public clinical imaging resource described in
-[van Huizen et al., Modern Pathology (2025)](https://doi.org/10.1016/j.modpat.2024.100633).
+LP-HHG is constructed from public clinical HHG images with instance annotations
+and a patient-disjoint partition for PCA-SAM training and evaluation.
 Use the instance annotations and patient partition associated with the experiment
 being reproduced, organized in COCO format:
 

@@ -19,10 +19,7 @@ from .base import BaseCBRDHead
 
 @MODELS.register_module()
 class CBRDHead(BaseCBRDHead):
-    """Cascade roi head including one bbox head and one mask head.
-
-    https://arxiv.org/abs/1712.00726
-    """
+    """PCA-SAM cascaded localization, classification and boundary prediction."""
 
     def __init__(self,
                  num_stages: int,
