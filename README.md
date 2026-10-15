@@ -19,11 +19,17 @@ labels provide a basis for nuclear morphometry and cell-density mapping,
 linking rapid HHG imaging to automated, quantitative characterization of cell
 populations in human lung and pleural biopsies.
 
+The manuscript is currently in the submission process, and the LP-HHG dataset
+is being prepared for public release. Updates on dataset availability will be
+posted in this repository.
+
 ## 中文介绍
 
 快速、无标记的高次谐波产生（HHG）成像能够揭示活检组织结构，但从以三次谐波产生（THG）为主导对比度的图像中提取定量细胞级信息仍面临挑战。低信号细胞核与组织空隙可能具有相似外观，而密集的细胞排列和异质细胞群体进一步增加了实例分离与识别的难度。
 
 PCA-SAM结合周围组织信息辨识这些模糊目标，将冻结的SAM编码器内嵌于统一多任务框架，连接细胞定位、核轮廓勾画与类别识别。框架在特征和实例两个层面引入组织上下文，并联合优化下游预测组件，推理无需用户提示或独立的外部检测器。输出的轮廓、位置与类别标签为细胞核形态测量和细胞密度映射提供基础，将快速HHG成像连接到肺部和胸膜活检中细胞群体的自动化定量表征。
+
+目前论文正处于投稿阶段，LP-HHG数据集正在整理，计划后续开源。数据集开放的相关进展将在本仓库更新。
 
 ## Workflow
 
