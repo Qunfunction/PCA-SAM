@@ -3,51 +3,68 @@
 **Photonic-contrast-aware SAM for Cell Identification in Label-free Third Harmonic
 Generation Images of Lung and Pleural Biopsies**
 
-PCA-SAM connects rapid, label-free higher harmonic generation (HHG) imaging with
-automated cell-level analysis of human lung and pleural biopsies. With third
-harmonic generation (THG) providing the dominant cellular contrast, the framework
-brings cell localization, nuclear contour delineation, and cell-class recognition
-into a unified analysis of heterogeneous tissue.
+PCA-SAM supports automated cell-level analysis of label-free HHG biopsy images,
+with THG providing the dominant cellular contrast.
 
-## Interpreting cells within their tissue context
+## Workflow
 
-THG makes tissue structures visible without staining, yet its optical contrast
-does not always make individual cells easy to identify. Low-signal nuclei can
-resemble tissue gaps, while densely arranged cells and heterogeneous populations
-complicate both instance separation and recognition. Interpreting these regions
-requires information beyond their local appearance.
+### 1. Get the code
 
-PCA-SAM brings surrounding tissue context into both feature representations and
-instance prediction, linking contextual target identification with contour
-learning. A frozen SAM encoder is embedded within a unified multitask framework,
-with downstream components jointly optimized for detection, segmentation, and
-classification. Inference requires neither user-provided prompts nor a separate
-external detector, allowing cell-level predictions to be obtained directly from
-HHG biopsy images.
+```bash
+git clone https://github.com/Qunfunction/PCA-SAM.git
+cd PCA-SAM
+```
 
-## From optical images to quantitative tissue information
+### 2. Set up the environment
 
-Cell locations, nuclear contours, and class labels turn label-free images into
-measurable morphological and spatial information. These outputs provide a basis
-for nuclear morphometry and cell-density mapping, supporting quantitative
-characterization of cell populations and targeted histological review.
+Use Python 3.8 and a CUDA 11.6-compatible environment:
 
-By linking the optical characteristics of THG with tissue-context interpretation
-and joint instance analysis, PCA-SAM provides a route from rapid HHG image
-acquisition to automated descriptions of cellular organization in biopsy tissue.
+```bash
+python -m pip install "torch==1.13.1+cu116" "torchvision==0.14.1+cu116" --extra-index-url https://download.pytorch.org/whl/cu116
+python -m pip install openmim
+mim install "mmcv==2.1.0"
+python -m pip install -r requirements.txt
+python -m pip install -e .
+```
 
-## LP-HHG
+### 3. Prepare SAM weights
 
-The study introduces LP-HHG, constructed from public clinical HHG images, with
-nearly 1,300 images and over 40,000 annotated instances from 44 patients.
-Patient-disjoint evaluation assesses cell-level analysis on held-out patients.
+Download the [SAM ViT-B image encoder](https://github.com/Qunfunction/PCA-SAM/releases/download/v0.1.0/image_encoder_vit_b.pth)
+to `checkpoints/sam_vit_b/`.
 
-## Availability
+Training also needs the original SAM prompt encoder and mask decoder. To prepare
+all three components, download the
+[official SAM ViT-B checkpoint](https://github.com/facebookresearch/segment-anything#model-checkpoints)
+and run the following with an empty output directory:
 
-This repository provides the PCA-SAM implementation and model configurations.
-The [original SAM ViT-B image encoder](https://github.com/Qunfunction/PCA-SAM/releases/tag/v0.1.0)
-is available separately. Trained PCA-SAM checkpoints, LP-HHG images, annotations,
-and patient split files are not included in this release.
+```bash
+python tools/prepare_sam_weights.py sam_vit_b_01ec64.pth --output-dir checkpoints/sam_vit_b
+```
+
+### 4. Prepare the data
+
+Place images in `data/LP-HHG/images/` and COCO annotations in
+`data/LP-HHG/annotations/instances_train.json` and `instances_test.json`.
+Keep all images and patches from a patient in the same subset. Use category IDs
+1 for normal/tumor cells combined and 2 for immune cells.
+
+### 5. Train
+
+```bash
+python tools/train.py configs/pca_sam_vit_b_lphhg.py --work-dir work_dirs/pca_sam
+```
+
+### 6. Evaluate and predict
+
+Replace the checkpoint and image paths with your own files:
+
+```bash
+python tools/test.py configs/pca_sam_vit_b_lphhg.py path/to/pca_sam_checkpoint.pth
+python tools/predict.py configs/pca_sam_vit_b_lphhg.py path/to/pca_sam_checkpoint.pth path/to/image.png --output outputs/prediction.json --visualization outputs/prediction.png
+```
+
+Trained PCA-SAM checkpoints and LP-HHG data are not included. Evaluation and
+prediction require a trained PCA-SAM checkpoint, not the SAM encoder alone.
 
 ## Citation
 
