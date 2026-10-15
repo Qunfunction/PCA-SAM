@@ -3,8 +3,21 @@
 **Photonic-contrast-aware SAM for Cell Identification in Label-free Third Harmonic
 Generation Images of Lung and Pleural Biopsies**
 
-PCA-SAM supports automated cell-level analysis of label-free HHG biopsy images,
-with THG providing the dominant cellular contrast.
+Rapid, label-free higher harmonic generation (HHG) imaging reveals biopsy tissue
+structure, yet extracting quantitative cell-level information remains challenging
+in third harmonic generation (THG)-dominant images. Low-signal nuclei can resemble
+tissue gaps, while dense cellular arrangements and heterogeneous populations
+complicate instance separation and recognition.
+
+PCA-SAM interprets these ambiguous targets within their surrounding tissue,
+embedding a frozen SAM encoder in a unified multitask framework that connects
+cell localization, nuclear contour delineation, and cell-class recognition.
+Tissue context is incorporated at both feature and instance levels, with joint
+optimization of downstream components and no user-provided prompts or separate
+external detector at inference. The resulting contours, locations, and class
+labels provide a basis for nuclear morphometry and cell-density mapping,
+linking rapid HHG imaging to automated, quantitative characterization of cell
+populations in human lung and pleural biopsies.
 
 ## Workflow
 
