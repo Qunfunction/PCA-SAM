@@ -95,6 +95,12 @@ checkout or machine-specific drive path.
 
 ## SAM initialization
 
+Only the original SAM ViT-B image-encoder initialization is intended for
+distribution as a release asset, named `image_encoder_vit_b.pth`. Trained
+PCA-SAM checkpoints are not distributed. The encoder file is too large for
+ordinary Git tracking; keep it under `checkpoints/sam_vit_b/` after download.
+The asset has not yet been uploaded, so no release download URL is provided.
+
 Obtain `sam_vit_b_01ec64.pth` from the
 [official Segment Anything repository](https://github.com/facebookresearch/segment-anything#model-checkpoints).
 Then split the official checkpoint into the initialization components:
@@ -104,7 +110,11 @@ python tools/prepare_sam_weights.py sam_vit_b_01ec64.pth --output-dir checkpoint
 ```
 
 The output files are `image_encoder_vit_b.pth`, `mask_decoder_vit_b.pth`, and
-`prompt_encoder_vit_b.pth`. A full trained PCA-SAM checkpoint contains these
+`prompt_encoder_vit_b.pth`. The released training configuration also requires
+the original prompt-encoder and mask-decoder weights for its frozen SAM teacher;
+the image encoder alone is not sufficient to initialize this training setup.
+These two teacher files can be prepared locally with the command above and are
+not included in the planned weight upload. A full trained PCA-SAM checkpoint contains these
 components already, so the testing and prediction tools do not require the
 separate initialization files.
 
