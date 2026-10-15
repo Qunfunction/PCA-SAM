@@ -8,6 +8,22 @@ detection, nuclear instance segmentation, and two-class recognition in HHG biops
 images. An internal RPN generates candidate regions. Inference needs no manual
 point/box prompts or separate external detector.
 
+## Citation
+
+Please cite the following manuscript when using PCA-SAM code in your research:
+
+Zequn Sun, Yuchen Wu, Qiyu Bo, Xianghui Wang, Zhiqing Zhang, and Shengjiang Chang.
+**PCA-SAM: Photonic-contrast-aware SAM for Cell Identification in Label-free Third
+Harmonic Generation Images of Lung and Pleural Biopsies.**
+
+```bibtex
+@unpublished{sun_pca_sam,
+  author = {Sun, Zequn and Wu, Yuchen and Bo, Qiyu and Wang, Xianghui and Zhang, Zhiqing and Chang, Shengjiang},
+  title = {{PCA-SAM}: Photonic-contrast-aware {SAM} for Cell Identification in Label-free Third Harmonic Generation Images of Lung and Pleural Biopsies},
+  note = {Manuscript}
+}
+```
+
 ## Architecture
 
 ```text
