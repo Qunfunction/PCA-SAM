@@ -15,7 +15,7 @@ from mmdet.structures.mask import BitmapMasks
 from mmdet.utils import register_all_modules
 
 import pca_sam
-from pca_sam.models import CSPCNeck
+from pca_sam.models import MOMANeck, CSPCNeck
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -49,15 +49,37 @@ class ModelTests(unittest.TestCase):
 
     def test_config_registration(self):
         self.assertEqual(self.cfg.model.type, 'PCASAM')
-        self.assertEqual(self.cfg.model.neck.type, 'CSPCNeck')
-        self.assertEqual(self.cfg.model.roi_head.type, 'CBRDHead')
-        for name in ['PCASAM', 'CSPCNeck', 'CBRDHead', 'PCASAMImageEncoder',
+        self.assertEqual(self.cfg.model.neck.type, 'MOMANeck')
+        self.assertEqual(self.cfg.model.roi_head.type, 'MTIHHead')
+        for name in ['PCASAM', 'MOMANeck', 'MTIHHead', 'PCASAMImageEncoder',
                      'SAMTeacherMaskDecoder', 'SAMTeacherPromptEncoder']:
             self.assertIsNotNone(MODELS.get(name))
         self.assertEqual(self.cfg.model.roi_head.stage_loss_weights, [1, .5, .25])
 
-    def test_cspc_shapes_and_gradients(self):
-        neck = CSPCNeck(16, 8, target_sizes=((32, 32), (16, 16), (8, 8), (4, 4)))
+    def test_legacy_module_aliases(self):
+        self.assertIs(MOMANeck, CSPCNeck)
+        for current, legacy in [
+            ('MOMANeck', 'CSPCNeck'), ('MTIHHead', 'CBRDHead'),
+            ('MTIHContextBBoxHead', 'CBRDContextBBoxHead'),
+            ('MTIHMaskHead', 'CBRDMaskHead'),
+            ('MTIHAuxiliaryMaskHead', 'CBRDAuxiliaryMaskHead'),
+        ]:
+            self.assertIs(MODELS.get(current), MODELS.get(legacy))
+
+    def test_three_class_configuration(self):
+        cfg = Config.fromfile(str(ROOT / 'configs/pca_sam_vit_b_lphhg_three_class.py'))
+        self.assertEqual(cfg.metainfo.classes, ('tumor', 'immune', 'normal'))
+        for dataset in [cfg.train_dataloader.dataset, cfg.test_dataloader.dataset]:
+            self.assertEqual(dataset.metainfo, cfg.metainfo)
+        for head in cfg.model.roi_head.bbox_head:
+            self.assertEqual(head.num_classes, 3)
+        self.assertEqual(cfg.model.roi_head.mask_head.num_classes, 3)
+        self.assertEqual(cfg.model.roi_head.sam_mask_head.num_classes, 3)
+        # Loading the new config must not alter the legacy two-class definition.
+        self.assertTrue(all(h.num_classes == 2 for h in self.cfg.model.roi_head.bbox_head))
+
+    def test_moma_shapes_and_gradients(self):
+        neck = MOMANeck(16, 8, target_sizes=((32, 32), (16, 16), (8, 8), (4, 4)))
         inputs = [torch.randn(1, 8, 8, 8, requires_grad=True) for _ in range(4)]
         outputs = neck(inputs)
         self.assertEqual([tuple(t.shape) for t in outputs],

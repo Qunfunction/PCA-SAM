@@ -10,7 +10,7 @@ from mmdet.structures import SampleList
 from mmdet.utils import InstanceList, OptConfigType, OptMultiConfig
 
 
-class BaseCBRDHead(BaseModule, metaclass=ABCMeta):
+class BaseMTIHHead(BaseModule, metaclass=ABCMeta):
     """Base class for RoIHeads."""
 
     def __init__(self,
@@ -129,3 +129,7 @@ class BaseCBRDHead(BaseModule, metaclass=ABCMeta):
                 x, batch_img_metas, results_list, image_embeddings, rescale=rescale)
 
         return results_list
+
+
+# Backward-compatible import for earlier releases.
+BaseCBRDHead = BaseMTIHHead

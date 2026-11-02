@@ -12,8 +12,8 @@ from mmdet.structures.bbox import get_box_tensor, scale_boxes
 from typing import List, Optional, Tuple, Union
 
 
-@MODELS.register_module()
-class CBRDContextBBoxHead(ConvFCBBoxHead):
+@MODELS.register_module(name=["MTIHContextBBoxHead", "CBRDContextBBoxHead"])
+class MTIHContextBBoxHead(ConvFCBBoxHead):
 
     def __init__(self, fc_out_channels: int = 1024,
                  *args, **kwargs) -> None:
@@ -471,3 +471,7 @@ class CBRDContextBBoxHead(ConvFCBBoxHead):
             out += (x_shared,)
 
         return out
+
+
+# Backward-compatible import; parameter names are unchanged.
+CBRDContextBBoxHead = MTIHContextBBoxHead

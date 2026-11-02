@@ -1,4 +1,4 @@
-"""Export boxes, two-class labels and RLE masks from a single HHG image."""
+"""Export boxes, cell-type labels and RLE masks from a single HHG image."""
 import argparse
 import json
 from pathlib import Path

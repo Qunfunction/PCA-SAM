@@ -26,8 +26,8 @@ BYTES_PER_FLOAT = 4
 GPU_MEM_LIMIT = 1024**3  # 1 GB memory limit
 
 
-@MODELS.register_module()
-class CBRDMaskHead(BaseModule):
+@MODELS.register_module(name=["MTIHMaskHead", "CBRDMaskHead"])
+class MTIHMaskHead(BaseModule):
 
     def __init__(self,
                  num_convs: int = 4,
@@ -481,3 +481,7 @@ def _do_paste_mask(masks: Tensor,
         return img_masks[:, 0], (slice(y0_int, y1_int), slice(x0_int, x1_int))
     else:
         return img_masks[:, 0], ()
+
+
+# Backward-compatible import; parameter names are unchanged.
+CBRDMaskHead = MTIHMaskHead
