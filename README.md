@@ -30,6 +30,11 @@ Training and test patients are disjoint. The three cell classes are tumor
 in normal tissue; non-immune cells in other pathological tissues are
 operationally grouped as tumor cells.
 
+## Public datasets
+
+- **TissueNet (fluorescence):** [Official download](https://datasets.deepcell.org/data).
+- **LIVECell (phase contrast):** [Official image and annotation downloads](https://sartorius-research.github.io/LIVECell/#how-to-access-livecell).
+
 ## Quick start
 
 ### 1. Installation
