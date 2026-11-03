@@ -9,7 +9,9 @@ PCA-SAM integrates SAM into a unified framework that combines local THG contrast
 with cellular morphology and surrounding tissue context to automatically detect,
 segment, and classify cells without external prompts. It supports quantitative
 analysis of nuclear morphology and cellular distribution, advancing label-free
-biopsy imaging toward automated and intelligent tissue assessment.
+biopsy imaging toward automated and intelligent tissue assessment. Evaluation
+on the public TissueNet and LIVECell datasets further demonstrates its
+applicability to fluorescence and phase-contrast microscopy.
 
 The manuscript is currently in the submission process, and the LP-HHG dataset
 is being prepared for public release. Updates on dataset availability will be
@@ -17,9 +19,14 @@ posted in this repository.
 
 ## 中文介绍
 
-无标记HHG显微成像能够快速获取新鲜肺及胸膜活检组织图像，但定量细胞信息的提取仍面临挑战。PCA-SAM将SAM整合至统一框架，融合局部THG对比、细胞形态与周围组织信息，无需外部提示即可自动完成细胞检测、实例分割和分类。该方法支持细胞核形态及细胞空间分布的定量分析，推动无标记活检成像向自动化、智能化组织评估发展。
+无标记HHG显微成像能够快速获取新鲜肺及胸膜活检组织图像，但定量细胞信息的提取仍面临挑战。PCA-SAM将SAM整合至统一框架，融合局部THG对比、细胞形态与周围组织信息，无需外部提示即可自动完成细胞检测、实例分割和分类。该方法支持细胞核形态及细胞空间分布的定量分析，推动无标记活检成像向自动化、智能化组织评估发展。在公开TissueNet和LIVECell数据集上的验证进一步展示了该方法在荧光及相差显微成像中的适用性。
 
 目前论文正处于投稿阶段，LP-HHG数据集正在整理，计划后续开源。数据集开放的相关进展将在本仓库更新。
+
+## Public datasets
+
+- **TissueNet (fluorescence):** [Official download](https://datasets.deepcell.org/data).
+- **LIVECell (phase contrast):** [Official image and annotation downloads](https://sartorius-research.github.io/LIVECell/#how-to-access-livecell).
 
 ## LP-HHG dataset
 
@@ -29,11 +36,6 @@ Training and test patients are disjoint. The three cell classes are tumor
 (blue), immune (red), and normal (white). Normal cells refer to non-immune cells
 in normal tissue; non-immune cells in other pathological tissues are
 operationally grouped as tumor cells.
-
-## Public datasets
-
-- **TissueNet (fluorescence):** [Official download](https://datasets.deepcell.org/data).
-- **LIVECell (phase contrast):** [Official image and annotation downloads](https://sartorius-research.github.io/LIVECell/#how-to-access-livecell).
 
 ## Quick start
 
