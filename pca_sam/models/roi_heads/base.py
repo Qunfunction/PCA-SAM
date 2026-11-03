@@ -109,9 +109,6 @@ class BaseMTIHHead(BaseModule, metaclass=ABCMeta):
             data_samples.metainfo for data_samples in batch_data_samples
         ]
 
-        # TODO: nms_op in mmcv need be enhanced, the bbox result may get
-        #  difference when not rescale in bbox_head
-
         # If it has the mask branch, the bbox branch does not need
         # to be scaled to the original image scale, because the mask
         # branch will scale both bbox and mask at the same time.
@@ -131,5 +128,5 @@ class BaseMTIHHead(BaseModule, metaclass=ABCMeta):
         return results_list
 
 
-# Backward-compatible import for earlier releases.
+# Earlier API name.
 BaseCBRDHead = BaseMTIHHead

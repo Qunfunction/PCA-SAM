@@ -1,5 +1,5 @@
 {
-  "description": "SHA-256 of the local experiment source before packaging; no checkpoint key renaming is required.",
+  "description": "SHA-256 digests of the original experiment source files.",
   "files": [
     {
       "file": "pca_sam/models/sam/image_encoder.py",

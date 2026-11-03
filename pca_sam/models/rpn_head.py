@@ -1,4 +1,4 @@
-"""Numerically safe proposal postprocessing for Windows mixed-precision training."""
+"""Float32 proposal postprocessing for mixed-precision training."""
 from mmdet.models.dense_heads.rpn_head import RPNHead
 from mmdet.registry import MODELS
 

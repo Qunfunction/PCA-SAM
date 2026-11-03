@@ -473,5 +473,5 @@ class MTIHContextBBoxHead(ConvFCBBoxHead):
         return out
 
 
-# Backward-compatible import; parameter names are unchanged.
+# Earlier API name.
 CBRDContextBBoxHead = MTIHContextBBoxHead

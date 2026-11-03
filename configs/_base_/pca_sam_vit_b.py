@@ -1,4 +1,4 @@
-"""PCA-SAM ViT-B model definition; values retained from the experiment configuration."""
+"""PCA-SAM ViT-B model with MOMA and MTIH."""
 model = {'backbone': {'checkpoint': None,
               'depth': 12,
               'embed_dim': 768,

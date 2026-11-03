@@ -1,4 +1,4 @@
-"""Compatibility imports; the manuscript head is now named MTIH."""
+"""MTIH import aliases."""
 from .mtih import MTIHHead, CBRDHead
 
 __all__ = ["MTIHHead", "CBRDHead"]

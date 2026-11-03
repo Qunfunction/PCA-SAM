@@ -21,9 +21,9 @@ def main():
     args = parser.parse_args()
     output = Path(args.output)
     if output.exists():
-        raise FileExistsError(f'Refusing to overwrite {output}')
+        raise FileExistsError(f'Output file already exists: {output}')
     if args.visualization and Path(args.visualization).exists():
-        raise FileExistsError(f'Refusing to overwrite {args.visualization}')
+        raise FileExistsError(f'Visualization file already exists: {args.visualization}')
     cfg = load_config(args.config)
     disable_component_pretraining(cfg)
     cfg.test_pipeline = [step for step in cfg.test_pipeline

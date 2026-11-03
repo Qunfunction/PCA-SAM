@@ -10,7 +10,7 @@ from pycocotools.cocoeval import COCOeval
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('annotations')
-    parser.add_argument('predictions', help='COCO-format result list, not predict.py export JSON')
+    parser.add_argument('predictions', help='COCO result list containing image_id, category_id, and score')
     parser.add_argument('--iou-type', choices=['bbox', 'segm'], default='segm')
     parser.add_argument('--class-agnostic', action='store_true')
     parser.add_argument('--max-dets', type=int, default=1000)

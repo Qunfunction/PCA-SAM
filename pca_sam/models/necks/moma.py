@@ -12,7 +12,7 @@ from ..sam.common import LayerNorm2d
 
 
 class _Projection(nn.Conv2d):
-    """Keep the experiment's convolution and normalization parameter layout."""
+    """Pointwise projection with optional layer normalization."""
 
     def __init__(self, in_channels, out_channels, norm):
         super().__init__(in_channels, out_channels, 1, bias=not norm)
@@ -21,7 +21,7 @@ class _Projection(nn.Conv2d):
         elif not norm:
             self.norm = None
         else:
-            raise ValueError("The released MOMA configuration supports LN or no normalization.")
+            raise ValueError("MOMA normalization must be LN or None.")
 
     def forward(self, x):
         x = super().forward(x)
@@ -34,7 +34,6 @@ class MOMANeck(BaseModule):
 
     Shallow encoder features supply queries; pooled deep features supply keys
     and values. Attention output is concatenated with unpooled deep features.
-    Module attribute names retain compatibility with experiment checkpoints.
     """
 
     def __init__(self, patch_size, embed_dim, out_channels=256,
@@ -106,5 +105,5 @@ class MOMANeck(BaseModule):
         return tuple(self.fusion(calibrated))
 
 
-# Backward-compatible import; parameter names are unchanged.
+# Earlier API name.
 CSPCNeck = MOMANeck

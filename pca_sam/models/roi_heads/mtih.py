@@ -39,7 +39,7 @@ class MTIHHead(BaseMTIHHead):
         assert bbox_roi_extractor is not None
         assert bbox_head is not None
         assert shared_head is None, \
-            'Shared head is not supported in Cascade RCNN anymore'
+            'MTIH uses separate box and mask branches.'
         self.num_stages = num_stages
         self.stage_loss_weights = stage_loss_weights
         super().__init__(
@@ -345,8 +345,6 @@ class MTIHHead(BaseMTIHHead):
         Returns:
             dict[str, Tensor]: A dictionary of loss components
         """
-        # TODO: May add a new function in baseroihead
-
         assert len(rpn_results_list) == len(batch_data_samples)
         outputs = unpack_gt_instances(batch_data_samples)
         batch_gt_instances, batch_gt_instances_ignore, batch_img_metas \
@@ -573,7 +571,6 @@ class MTIHHead(BaseMTIHHead):
 
             # some detector with_reg is False, bbox_preds will be None
             if bbox_preds is not None:
-                # TODO move this to a sabl_roi_head
                 # the bbox prediction of some detectors like SABL is not Tensor
                 if isinstance(bbox_preds, torch.Tensor):
                     bbox_preds = bbox_preds.split(num_proposals_per_img, 0)
@@ -699,9 +696,6 @@ class MTIHHead(BaseMTIHHead):
             data_samples.metainfo for data_samples in batch_data_samples
         ]
 
-        # TODO: nms_op in mmcv need be enhanced, the bbox result may get
-        #  difference when not rescale in bbox_head
-
         # If it has the mask branch, the bbox branch does not need
         # to be scaled to the original image scale, because the mask
         # branch will scale both bbox and mask at the same time.
@@ -735,5 +729,5 @@ def project_masks_on_boxes(gt_masks, boxes, matched_idxs, M):
     return roi_align(gt_masks, rois, (M, M), 1.0)[:, 0]
 
 
-# Backward-compatible import; parameter names are unchanged.
+# Earlier API name.
 CBRDHead = MTIHHead

@@ -13,11 +13,7 @@ from mmdet.models.detectors.base import BaseDetector
 
 @MODELS.register_module()
 class PCASAM(BaseDetector):
-    """Base class for two-stage detectors.
-
-    Two-stage detectors typically consisting of a region proposal network and a
-    task-specific regression head.
-    """
+    """Shared SAM encoder, MOMA feature pyramid, RPN, and MTIH predictions."""
 
     def __init__(self,
                  backbone: ConfigType,
@@ -52,8 +48,6 @@ class PCASAM(BaseDetector):
             self.rpn_head = MODELS.build(rpn_head_)
 
         if roi_head is not None:
-            # update train and test cfg here for now
-            # TODO: refactor assigner & sampler
             rcnn_train_cfg = train_cfg.rcnn if train_cfg is not None else None
             roi_head.update(train_cfg=rcnn_train_cfg)
             roi_head.update(test_cfg=test_cfg.rcnn)

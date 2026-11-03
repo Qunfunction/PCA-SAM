@@ -21,8 +21,7 @@ from mmdet.structures.mask import mask_target
 from mmdet.utils import ConfigType, InstanceList, OptConfigType, OptMultiConfig
 
 BYTES_PER_FLOAT = 4
-# TODO: This memory limit may be too much or too little. It would be better to
-#  determine it based on available resources.
+# Memory budget for pasting mask chunks.
 GPU_MEM_LIMIT = 1024**3  # 1 GB memory limit
 
 
@@ -45,8 +44,7 @@ class MTIHAuxiliaryMaskHead(BaseModule):
                  loss_mask: ConfigType = dict(
                      type='CrossEntropyLoss', use_mask=True, loss_weight=1.0),
                  init_cfg: OptMultiConfig = None) -> None:
-        assert init_cfg is None, 'To prevent abnormal initialization ' \
-                                 'behavior, init_cfg is not allowed to be set'
+        assert init_cfg is None, 'Mask heads use their own weight initialization.'
         super().__init__(init_cfg=init_cfg)
         self.upsample_cfg = upsample_cfg.copy()
         if self.upsample_cfg['type'] not in [
@@ -57,7 +55,6 @@ class MTIHAuxiliaryMaskHead(BaseModule):
                 'accepted methods are "deconv", "nearest", "bilinear", '
                 '"carafe"')
         self.num_convs = num_convs
-        # WARN: roi_feat_size is reserved and not used
         self.roi_feat_size = _pair(roi_feat_size)
         self.in_channels = in_channels
         self.conv_kernel_size = conv_kernel_size
@@ -197,10 +194,6 @@ class MTIHAuxiliaryMaskHead(BaseModule):
         Returns:
             dict: A dictionary of loss and targets components.
         """
-        # mask_targets = self.get_targets(
-        #     sampling_results=sampling_results,
-        #     batch_gt_instances=batch_gt_instances,
-        #     rcnn_train_cfg=rcnn_train_cfg)
         mask_targets = batch_gt_instances
         pos_labels = torch.cat([res.pos_gt_labels for res in sampling_results])
 
@@ -215,7 +208,6 @@ class MTIHAuxiliaryMaskHead(BaseModule):
                 loss_mask = self.loss_mask(mask_preds, mask_targets,
                                            pos_labels)
         loss['loss_sam_mask'] = loss_mask
-        # TODO: which algorithm requires mask_targets?
         return dict(loss_mask=loss, sam_targets=mask_targets)
 
     def predict_by_feat(self,
@@ -479,5 +471,5 @@ def _do_paste_mask(masks: Tensor,
         return img_masks[:, 0], ()
 
 
-# Backward-compatible import; parameter names are unchanged.
+# Earlier API name.
 CBRDAuxiliaryMaskHead = MTIHAuxiliaryMaskHead

@@ -1,4 +1,4 @@
-"""Focused checks for the released PCA-SAM module contracts."""
+"""PCA-SAM model and configuration tests."""
 import copy
 from pathlib import Path
 from types import SimpleNamespace
@@ -75,7 +75,6 @@ class ModelTests(unittest.TestCase):
             self.assertEqual(head.num_classes, 3)
         self.assertEqual(cfg.model.roi_head.mask_head.num_classes, 3)
         self.assertEqual(cfg.model.roi_head.sam_mask_head.num_classes, 3)
-        # Loading the new config must not alter the legacy two-class definition.
         self.assertTrue(all(h.num_classes == 2 for h in self.cfg.model.roi_head.bbox_head))
 
     def test_moma_shapes_and_gradients(self):
@@ -155,7 +154,7 @@ class ModelTests(unittest.TestCase):
 
     def test_cascade_training_losses(self):
         head = self.small_head().train()
-        # Test loss plumbing separately from the frozen teacher's expensive forward.
+        # Use fixed teacher targets to check cascade loss gradients.
         head.gen_mask = lambda rois, image_embeddings: torch.ones(
             len(rois), 1, 28, 28, device=rois.device)
         features = tuple(torch.randn(1, 8, n, n, requires_grad=True)

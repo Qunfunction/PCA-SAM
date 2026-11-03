@@ -1,14 +1,10 @@
-"""LP-HHG manuscript configuration: tumor, immune, and normal cells.
-
-Use three-class annotations and a matching checkpoint. This configuration does
-not convert the labels in an existing two-class COCO annotation file.
-"""
+"""LP-HHG three-class configuration: tumor, immune, and normal cells."""
 _base_ = ['./pca_sam_vit_b_lphhg.py']
 
 metainfo = dict(classes=('tumor', 'immune', 'normal'),
                 palette=[(48, 164, 220), (255, 0, 0), (255, 255, 255)])
 
-# Keep the stage-specific box coders and losses, changing only the class count.
+# Three cascade stages for classification, box regression, and mask prediction.
 model = dict(roi_head=dict(
     bbox_head=[{'bbox_coder': {'target_means': [0.0, 0.0, 0.0, 0.0],
                  'target_stds': [0.1, 0.1, 0.2, 0.2],
